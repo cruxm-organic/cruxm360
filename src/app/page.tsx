@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { 
   ArrowRight, 
   Search, 
@@ -165,7 +165,7 @@ export default function Home() {
    );
 }
 
-function FeatureLink({ icon, text }: any) {
+function FeatureLink({ icon, text }: { icon: ReactNode; text: string }) {
    return (
       <div className="flex items-center gap-3 text-white/30 hover:text-teal-400 transition-all cursor-crosshair group italic italic italic">
          <div className="group-hover:scale-125 transition-transform italic italic italic italic">{icon}</div>

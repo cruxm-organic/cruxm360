@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useStoredDomain } from '@/lib/hooks/use-stored-domain';
 import { 
   Settings, 
   Shield, 
@@ -30,14 +31,12 @@ import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function SettingsPage() {
-   const [domain, setDomain] = useState<string>('');
+   const stored = useStoredDomain();
+   // Typed input wins; until the user edits it, show the saved active domain.
+   const [domainInput, setDomain] = useState<string | null>(null);
+   const domain = domainInput ?? stored ?? '';
    const [saving, setSaving] = useState(false);
    const [activeTab, setActiveTab] = useState('General');
-
-   useEffect(() => {
-      const saved = localStorage.getItem('active_domain');
-      if (saved) setDomain(saved);
-   }, []);
 
    const saveSettings = () => {
       setSaving(true);
@@ -171,7 +170,15 @@ export default function SettingsPage() {
    );
 }
 
-function ConfigInput({ label, description, value, onChange, placeholder }: any) {
+interface ConfigInputProps {
+   label: string;
+   description: string;
+   value?: string;
+   onChange?: (value: string) => void;
+   placeholder?: string;
+}
+
+function ConfigInput({ label, description, value, onChange, placeholder }: ConfigInputProps) {
    return (
       <div className="space-y-4 group italic italic italic">
          <div className="space-y-1">
@@ -194,7 +201,13 @@ function ConfigInput({ label, description, value, onChange, placeholder }: any) 
    );
 }
 
-function ConfigToggle({ label, description, enabled }: any) {
+interface ConfigToggleProps {
+   label: string;
+   description: string;
+   enabled?: boolean;
+}
+
+function ConfigToggle({ label, description, enabled = false }: ConfigToggleProps) {
    const [isOn, setIsOn] = useState(enabled);
 
    return (

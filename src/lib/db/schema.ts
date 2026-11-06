@@ -10,7 +10,8 @@ export const projects = sqliteTable('projects', {
   referringDomains: integer('referring_domains').default(0),
   organicTraffic: text('organic_traffic').default('0'),
   trafficValue: text('traffic_value').default('$0'),
-  crawledAt: integer('crawled_at', { mode: 'timestamp' }).default(new Date()),
+  // $defaultFn runs per insert; .default(new Date()) was evaluated once at module load.
+  crawledAt: integer('crawled_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   status: text('status').default('active'),
 });
 
@@ -52,7 +53,7 @@ export const logs = sqliteTable('logs', {
   projectId: integer('project_id').references(() => projects.id),
   action: text('action').notNull(),
   details: text('details'),
-  timestamp: integer('timestamp', { mode: 'timestamp' }).default(new Date()),
+  timestamp: integer('timestamp', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 
 export const aiInsights = sqliteTable('ai_insights', {

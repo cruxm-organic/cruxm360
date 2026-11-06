@@ -21,24 +21,25 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useState, useEffect } from 'react';
+import { useStoredDomain } from '@/lib/hooks/use-stored-domain';
+import type { ProjectData } from '@/lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function AIInsights() {
-   const [activeDomain, setActiveDomain] = useState('');
+   const stored = useStoredDomain();
+   const activeDomain = stored === undefined ? '' : (stored || 'cruxm.com');
    const [isLoading, setIsLoading] = useState(true);
-   const [projectData, setProjectData] = useState<any>(null);
+   const [projectData, setProjectData] = useState<ProjectData | null>(null);
 
    useEffect(() => {
-     const domain = localStorage.getItem('active_domain') || 'cruxm.com';
-     setActiveDomain(domain);
-
+     if (!activeDomain) return;
      const fetchStrategy = async () => {
         setIsLoading(true);
         try {
-           const res = await fetch(`/api/project-data?domain=${domain}`);
-           const data = await res.json();
+           const res = await fetch(`/api/project-data?domain=${encodeURIComponent(activeDomain)}`);
+           const data: ProjectData = await res.json();
            setProjectData(data);
-        } catch (e) {
+        } catch {
            console.error('Fetch Failed');
         } finally {
            setIsLoading(false);
@@ -46,7 +47,7 @@ export default function AIInsights() {
      };
 
      fetchStrategy();
-   }, []);
+   }, [activeDomain]);
 
    return (
       <div className="relative min-h-screen bg-[#050A0F] text-white p-6 md:p-10 selection:bg-teal-400 selection:text-black italic">

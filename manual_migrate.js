@@ -1,3 +1,5 @@
+// One-off CommonJS migration script, run directly with `node manual_migrate.js`.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const Database = require('better-sqlite3');
 const db = new Database('cruxm-v2.db');
 

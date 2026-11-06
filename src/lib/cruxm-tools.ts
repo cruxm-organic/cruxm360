@@ -1,4 +1,7 @@
 import * as cheerio from 'cheerio';
+import type { CheerioAPI } from 'cheerio';
+import { parseAuditUrl, UnsafeUrlError } from './security/url-guard';
+import { fetchPublicPage } from './security/safe-fetch';
 
 export interface Issue {
   message: string;
@@ -7,34 +10,54 @@ export interface Issue {
   category: string;
 }
 
+export interface KeywordSample {
+  word: string;
+  count?: number;
+  volume?: number | null;
+  difficulty?: number | null;
+  position?: number | null;
+}
+
 export interface AuditResult {
   url: string;
   domain: string;
   timestamp: string;
   score: number;
-  meta: any;
-  security: any;
-  performance: any;
-  semantic: any;
-  a11y: any;
-  links: any;
-  keywords: any;
-  social: any;
-  technical: any;
-  mobile: any;
-  content: any;
+  meta: { title: string; desc: string | undefined; issues: Issue[] };
+  security: { hsts: boolean; xframe: boolean; issues: Issue[] };
+  performance: { ttfb: number; size: string; issues: Issue[] };
+  semantic: { schemaCount: number; issues: Issue[] };
+  a11y: { imgMissingAlt: number; issues: Issue[] };
+  links: { internal: number; external: number; issues: Issue[] };
+  keywords: { extraction: KeywordSample[]; issues: Issue[] };
+  social: { ogTitle: string | undefined; issues: Issue[] };
+  technical: { canonical: string | undefined; robots: boolean; issues: Issue[] };
+  mobile: { viewport: string | undefined; issues: Issue[] };
+  content: { h1Count: number; issues: Issue[] };
   issues: Issue[];
-  ai: any;
-  dr?: number; // Domain Rating (Ahrefs-like)
-  ur?: number; // URL Rating
-  backlinks?: number;
-  referringDomains?: number;
-  organicTraffic?: string;
-  trafficValue?: string;
+  ai: { insight: string; actionable: string; priority: string; impact: string };
+  // Authority metrics are null when we have no real source for them.
+  dr: number | null;
+  ur: number | null;
+  backlinks: number | null;
+  referringDomains: number | null;
+  organicTraffic: string | null;
+  trafficValue: string | null;
 }
 
-// TOP DOMAINS INTEL BASE (Ahrefs-like static data for top-tier analysis demonstration)
-const TOP_DOMAINS_INTEL: Record<string, any> = {
+interface IntelEntry {
+  dr: number;
+  ur: number;
+  backlinks: number;
+  referringDomains: number;
+  organicTraffic: string;
+  trafficValue: string;
+  keywords: KeywordSample[];
+}
+
+// Hand-entered sample figures for a few well-known domains. These are NOT
+// measured values; they are only used when the audited domain is in this list.
+const TOP_DOMAINS_INTEL: Record<string, IntelEntry> = {
   'google.com': { dr: 98, ur: 91, backlinks: 13000000000, referringDomains: 12000000, organicTraffic: '28.4B', trafficValue: '$1.2B', keywords: [
     { word: 'google', volume: 450000000, difficulty: 99, position: 1 },
     { word: 'gmail', volume: 150000000, difficulty: 95, position: 1 },
@@ -56,126 +79,121 @@ const TOP_DOMAINS_INTEL: Record<string, any> = {
   ]}
 };
 
-export class CRUXMProductionEngine {
-  async runFullSuite(url: string): Promise<AuditResult> {
-    const cleanUrl = url.startsWith('http') ? url : `https://${url}`;
-    let domain: string;
-    try {
-        domain = new URL(cleanUrl).hostname.replace('www.', '');
-    } catch(e) {
-        domain = url.replace(/https?:\/\//, '').split('/')[0].replace('www.', '');
-    }
-    const startTime = Date.now();
-    
-    // 1. INTEL CHECK (Simulated huge DB check for authority domains)
-    const powerData = TOP_DOMAINS_INTEL[domain] || null;
+const CRAWL_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 CruxM360/1.0',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+};
 
-    // 2. ROBUST CRAWL ENGINE
-    let response;
+export class CRUXMProductionEngine {
+  /** Throws UnsafeUrlError when the target is not allowed by the URL policy. */
+  async runFullSuite(input: string): Promise<AuditResult> {
+    const check = parseAuditUrl(input);
+    if (!check.ok) throw new UnsafeUrlError(check.reason);
+    const target = check.url;
+    const cleanUrl = target.toString();
+    const domain = target.hostname.replace(/^www\./, '');
+    const startTime = Date.now();
+
+    // Only exact own-property matches count, so "constructor" or "__proto__" cannot hit Object.prototype.
+    const powerData = Object.prototype.hasOwnProperty.call(TOP_DOMAINS_INTEL, domain)
+      ? TOP_DOMAINS_INTEL[domain]
+      : null;
+
     let html = '';
     let responseTime = 0;
     let responseHeaders = new Headers();
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s max
-
-      response = await fetch(cleanUrl, {
-        headers: { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 CruxM360/1.0',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      html = await response.text();
+      const page = await fetchPublicPage(target, CRAWL_HEADERS);
+      html = page.html;
       responseTime = Date.now() - startTime;
-      responseHeaders = response.headers;
-    } catch (e: any) {
-      console.warn('Network Error Stage 1:', e.message);
-      if (powerData) {
-         // If power domain but blocked, still return the power result with warning
-         html = '<html><body></body></html>'; 
-      } else {
-         return this.generateEmptyResult(cleanUrl, domain, e.message);
-      }
+      responseHeaders = page.headers;
+    } catch (e: unknown) {
+      if (e instanceof UnsafeUrlError) throw e;
+      const message = e instanceof Error ? e.message : 'Unknown network error';
+      console.warn('Network Error Stage 1:', message);
+      if (!powerData) return this.generateEmptyResult(cleanUrl, domain, message);
+      html = '<html><body></body></html>';
     }
 
     const $ = cheerio.load(html || '<html><body></body></html>');
 
-    // 3. ORCHESTRATE ALL CORE AUDITORS
     const meta = this.auditMetadata($);
     const security = this.auditSecurity(responseHeaders);
     const performance = this.auditPerformance(responseTime, html.length);
     const semantic = this.auditSemanticGraph($);
     const a11y = this.auditAccessibility($);
-    const links = this.auditLinks($, domain);
-    const keywords = powerData ? { extraction: powerData.keywords, issues: [] } : this.auditKeywords($);
+    const links = this.auditLinks($, cleanUrl, domain);
+    const keywords = powerData
+      ? { extraction: powerData.keywords, issues: [] as Issue[] }
+      : this.auditKeywords($);
     const social = this.auditSocial($);
     const technical = this.auditTechnical($, responseHeaders);
     const mobile = this.auditMobile($);
     const content = this.auditContent($);
 
-    const allIssues = [
-        ...meta.issues, ...security.issues, ...performance.issues,
-        ...semantic.issues, ...a11y.issues, ...links.issues,
-        ...keywords.issues, ...social.issues, ...technical.issues,
-        ...mobile.issues, ...content.issues
+    const allIssues: Issue[] = [
+      ...meta.issues, ...security.issues, ...performance.issues,
+      ...semantic.issues, ...a11y.issues, ...links.issues,
+      ...keywords.issues, ...social.issues, ...technical.issues,
+      ...mobile.issues, ...content.issues,
     ];
 
-    const score = Math.max(10, 100 - (allIssues.filter(i => i.type === 'error').length * 5) - (allIssues.filter(i => i.type === 'warning').length * 2));
-    
+    const errorCount = allIssues.filter((i) => i.type === 'error').length;
+    const warningCount = allIssues.filter((i) => i.type === 'warning').length;
+    const score = Math.max(10, 100 - errorCount * 5 - warningCount * 2);
+
     const ai = {
-      insight: `CruxM Neural Engine processed ${allIssues.length} signals for ${domain}. ${powerData ? 'Authority status confirmed.' : 'Deep analysis complete.'}`,
-      actionable: `Fixing ${allIssues.filter(i => i.type === 'error').length} critical technical gaps would accelerate ${domain}'s organic velocity.`,
+      insight: `CruxM Neural Engine processed ${allIssues.length} signals for ${domain}. ${powerData ? 'Sample authority data is shown for this domain.' : 'Deep analysis complete.'}`,
+      actionable: `Fixing ${errorCount} critical technical gaps would accelerate ${domain}'s organic velocity.`,
       priority: score < 70 ? 'high' : 'medium',
-      impact: powerData ? 'System-critical authority detected.' : 'Significant growth potential detected.'
+      impact: powerData ? 'Sample authority data available.' : 'Authority metrics are not measured by this engine.',
     };
 
     return {
       url: cleanUrl,
       domain,
       timestamp: new Date().toISOString(),
-      score: powerData ? 99 : score, // Authority domains always have high score in simulation
+      score,
       meta, security, performance, semantic, a11y, links, keywords, social, technical, mobile, content,
       issues: allIssues,
       ai,
-      // Authority Metrics
-      dr: powerData?.dr || Math.floor(Math.random() * 40) + 10,
-      ur: powerData?.ur || Math.floor(Math.random() * 30) + 15,
-      backlinks: powerData?.backlinks || Math.floor(Math.random() * 50000) + 1200,
-      referringDomains: powerData?.referringDomains || Math.floor(Math.random() * 8000) + 400,
-      organicTraffic: powerData?.organicTraffic || `${(Math.random() * 50).toFixed(1)}K`,
-      trafficValue: powerData?.trafficValue || `$${Math.floor(Math.random() * 10000)}`
+      dr: powerData?.dr ?? null,
+      ur: powerData?.ur ?? null,
+      backlinks: powerData?.backlinks ?? null,
+      referringDomains: powerData?.referringDomains ?? null,
+      organicTraffic: powerData?.organicTraffic ?? null,
+      trafficValue: powerData?.trafficValue ?? null,
     };
   }
 
   private generateEmptyResult(url: string, domain: string, error: string): AuditResult {
-    const issues: Issue[] = [{ 
-        message: `Network Connection Timeout: ${error}`, 
-        fix: 'Ensure the URL is reachable and does not have strict bot blocking.', 
-        type: 'error', 
-        category: 'NETWORK' 
+    const issues: Issue[] = [{
+      message: `Network Connection Timeout: ${error}`,
+      fix: 'Ensure the URL is reachable and does not have strict bot blocking.',
+      type: 'error',
+      category: 'NETWORK',
     }];
     return {
-        url, domain, timestamp: new Date().toISOString(), score: 0,
-        meta: { title: '', desc: '', issues: [] as Issue[] },
-        security: { hsts: false, xframe: false, issues: [] as Issue[] },
-        performance: { ttfb: 0, size: '0KB', issues: [] as Issue[] },
-        semantic: { schemaCount: 0, issues: [] as Issue[] },
-        a11y: { imgMissingAlt: 0, issues: [] as Issue[] },
-        links: { internal: 0, external: 0, issues: [] as Issue[] },
-        keywords: { extraction: [], issues: [] as Issue[] },
-        social: { ogTitle: '', twitterCard: '', issues: [] as Issue[] },
-        technical: { canonical: '', robots: false, issues: [] as Issue[] },
-        mobile: { viewport: '', issues: [] as Issue[] },
-        content: { h1Count: 0, issues: [] as Issue[] },
-        issues,
-        ai: { insight: 'Discovery Delayed', actionable: 'Fix connection issues to unlock neural insights.', priority: 'high', impact: 'None' }
+      url, domain, timestamp: new Date().toISOString(), score: 0,
+      meta: { title: '', desc: undefined, issues: [] },
+      security: { hsts: false, xframe: false, issues: [] },
+      performance: { ttfb: 0, size: '0KB', issues: [] },
+      semantic: { schemaCount: 0, issues: [] },
+      a11y: { imgMissingAlt: 0, issues: [] },
+      links: { internal: 0, external: 0, issues: [] },
+      keywords: { extraction: [], issues: [] },
+      social: { ogTitle: undefined, issues: [] },
+      technical: { canonical: undefined, robots: false, issues: [] },
+      mobile: { viewport: undefined, issues: [] },
+      content: { h1Count: 0, issues: [] },
+      issues,
+      ai: { insight: 'Discovery Delayed', actionable: 'Fix connection issues to unlock neural insights.', priority: 'high', impact: 'None' },
+      dr: null, ur: null, backlinks: null, referringDomains: null, organicTraffic: null, trafficValue: null,
     };
   }
 
-  private auditMetadata($: any) {
+  private auditMetadata($: CheerioAPI) {
     const issues: Issue[] = [];
     const title = $('title').first().text().trim();
     const desc = $('meta[name="description"], meta[property="og:description"]').first().attr('content');
@@ -195,69 +213,87 @@ export class CRUXMProductionEngine {
   private auditPerformance(duration: number, size: number) {
     const issues: Issue[] = [];
     if (duration > 1500) issues.push({ message: 'High Latency TTFB', fix: 'Optimize edge cache.', type: 'error', category: 'PERFORMANCE' });
-    return { ttfb: duration, size: `${(size/1024).toFixed(1)}KB`, issues };
+    return { ttfb: duration, size: `${(size / 1024).toFixed(1)}KB`, issues };
   }
 
-  private auditSemanticGraph($: any) {
+  private auditSemanticGraph($: CheerioAPI) {
     const issues: Issue[] = [];
-    const schemas: any[] = [];
-    $('script[type="application/ld+json"]').each((_: any, el: any) => {
-        try { schemas.push(JSON.parse($(el).html() || '{}')); } catch(e) {}
+    let schemaCount = 0;
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        JSON.parse($(el).html() || '{}');
+        schemaCount++;
+      } catch {
+        // invalid JSON-LD is not counted
+      }
     });
-    if (schemas.length === 0) issues.push({ message: 'No Structured Data', fix: 'Add JSON-LD.', type: 'warning', category: 'SEMANTIC' });
-    return { schemaCount: schemas.length, issues };
+    if (schemaCount === 0) issues.push({ message: 'No Structured Data', fix: 'Add JSON-LD.', type: 'warning', category: 'SEMANTIC' });
+    return { schemaCount, issues };
   }
 
-  private auditAccessibility($: any) {
+  private auditAccessibility($: CheerioAPI) {
     const issues: Issue[] = [];
     const imgMissingAlt = $('img:not([alt])').length;
-    if (imgMissingAlt > 0) issues.push({ message: `A11y: Missing Alt Tags`, fix: 'Apply Alt attributes.', type: 'warning', category: 'ACCESSIBILITY' });
+    if (imgMissingAlt > 0) issues.push({ message: 'A11y: Missing Alt Tags', fix: 'Apply Alt attributes.', type: 'warning', category: 'ACCESSIBILITY' });
     return { imgMissingAlt, issues };
   }
 
-  private auditLinks($: any, domain: string) {
-    const issues: Issue[] = [];
-    const links: string[] = [];
-    $('a[href]').each((_: any, el: any) => {
-        const h = $(el).attr('href');
-        if (h) links.push(h);
+  private auditLinks($: CheerioAPI, pageUrl: string, domain: string) {
+    let internal = 0;
+    let external = 0;
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href');
+      if (!href) return;
+      let host: string;
+      try {
+        host = new URL(href, pageUrl).hostname.replace(/^www\./, '');
+      } catch {
+        return; // unparseable href, neither internal nor external
+      }
+      if (host === domain || host.endsWith('.' + domain)) internal++;
+      else external++;
     });
-    const internal = links.filter(l => l.startsWith('/') || l.includes(domain)).length;
-    const external = links.length - internal;
     return { internal, external, issues: [] as Issue[] };
   }
 
-  private auditKeywords($: any) {
-    const text = $('body').text().replace(/\s+/g, ' ');
-    const words = text.toLowerCase().match(/\b(\w{5,})\b/g) || [];
-    const counts: Record<string, number> = {};
-    words.forEach((w: string) => counts[w] = (counts[w] || 0) + 1);
-    const extraction = Object.entries(counts).sort((a: any, b: any) => b[1] - a[1]).slice(0, 20).map(e => ({ word: e[0], count: e[1] }));
+  private auditKeywords($: CheerioAPI) {
+    // Work on a copy so other auditors still see the original document.
+    // Script, style and similar tags hold code, not visible content, so they must not count as keywords.
+    const body = $('body').clone();
+    body.find('script, style, noscript, template, svg').remove();
+    const text = body.text().replace(/\s+/g, ' ');
+    const words = text.toLowerCase().match(/\b\w{5,}\b/g) || [];
+    const counts = new Map<string, number>();
+    for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+    const extraction: KeywordSample[] = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([word, count]) => ({ word, count, volume: null, difficulty: null, position: null }));
     return { extraction, issues: [] as Issue[] };
   }
 
-  private auditSocial($: any) {
+  private auditSocial($: CheerioAPI) {
     const issues: Issue[] = [];
     const ogTitle = $('meta[property="og:title"]').attr('content');
     if (!ogTitle) issues.push({ message: 'Open Graph Incomplete', fix: 'Add OG metatags.', type: 'warning', category: 'SOCIAL' });
     return { ogTitle, issues };
   }
 
-  private auditTechnical($: any, headers: Headers) {
+  private auditTechnical($: CheerioAPI, headers: Headers) {
     const issues: Issue[] = [];
     const canonical = $('link[rel="canonical"]').attr('href');
     if (!canonical) issues.push({ message: 'No Canonical Link', fix: 'Define primary URL.', type: 'error', category: 'TECHNICAL' });
     return { canonical, robots: !!headers.get('x-robots-tag'), issues };
   }
 
-  private auditMobile($: any) {
+  private auditMobile($: CheerioAPI) {
     const issues: Issue[] = [];
     const viewport = $('meta[name="viewport"]').attr('content');
     if (!viewport) issues.push({ message: 'Mobile: No Viewport Tag', fix: 'Add viewport meta.', type: 'error', category: 'MOBILE' });
     return { viewport, issues };
   }
 
-  private auditContent($: any) {
+  private auditContent($: CheerioAPI) {
     const issues: Issue[] = [];
     const h1Count = $('h1').length;
     if (h1Count !== 1) issues.push({ message: h1Count === 0 ? 'Missing H1' : 'Multiple H1s', fix: 'Ensure exactly one H1.', type: 'warning', category: 'CONTENT' });
