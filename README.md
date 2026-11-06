@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CruxM360
 
-## Getting Started
+An on-page SEO audit dashboard built with Next.js and SQLite. Enter a domain and the
+server crawls that one public page, runs rule-based checks (title, meta description,
+H1, canonical, viewport, JSON-LD, image alt text, HSTS, Open Graph), stores the result
+and shows a score with a fix list.
 
-First, run the development server:
+## What is real and what is not
+
+| Area | Status |
+| --- | --- |
+| Audit score, issues, fix list | Real: computed from the crawled page |
+| Keywords | Word frequency on the page; volume, difficulty and position are not measured (shown as `—`) |
+| DR, UR, backlinks, traffic | Not measured. Hand-entered sample figures exist only for `google.com`, `ahrefs.com`, `semrush.com` in `src/lib/cruxm-tools.ts` |
+| Explorer, Compare, Tools, Settings | Static demo pages: they do not call the API |
+
+## Requirements
+
+- Node.js 20–25 is the supported range for `better-sqlite3` (it also works on 26 here)
+- On Windows: Visual Studio Build Tools with the "Desktop development with C++" workload, so `better-sqlite3` can compile
+
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev -- -H 127.0.0.1
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. Binding to `127.0.0.1` keeps it off your network: the app has
+no login, so anyone who can reach the port can run audits and read stored data.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Development server |
+| `npm run build` / `npm start` | Production build and server |
+| `npm test` | Unit tests (vitest) |
+| `npm run lint` | ESLint |
+| `npm run db:push` | Apply `src/lib/db/schema.ts` to the database with drizzle-kit |
 
-## Learn More
+## Data
 
-To learn more about Next.js, take a look at the following resources:
+The app reads and writes `cruxm-v2.db` in the project root (SQLite). It needs a
+persistent disk, so serverless hosts such as Vercel will lose the data between requests.
+`cruxm360.db` is an older database the code does not use.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Security notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `POST /api/run-audit` only fetches public `http`/`https` URLs on ports 80 and 443.
+  Private, loopback, link-local and cloud-metadata addresses are refused, including after
+  redirects and DNS resolution (`src/lib/security/`). Responses are capped at 2 MB and
+  10 seconds.
+- Not yet in place: authentication, rate limiting, a Content-Security-Policy, and
+  protection against DNS rebinding between the DNS check and the connection.

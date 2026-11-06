@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { 
   Search, 
   Globe, 
@@ -40,7 +40,17 @@ function DiagnosticRow({ label, value, status }: { label: string, value: string,
    );
 }
 
-function StatCard({ label, value, color, scan, progress }: any) {
+interface StatCardProps {
+   label: string;
+   value: ReactNode;
+   color?: string;
+   scan?: boolean;
+   progress?: number;
+}
+
+type ExplorerRow = ReturnType<typeof generateExplorerRows>[number];
+
+function StatCard({ label, value, color, scan, progress }: StatCardProps) {
    return (
       <div className="bg-white/[0.03] border border-white/5 p-6 rounded-3xl hover:border-white/10 transition-all italic relative overflow-hidden shadow-2xl">
          {scan && (
@@ -60,10 +70,12 @@ function StatCard({ label, value, color, scan, progress }: any) {
 
 export default function SiteExplorer() {
    const [search, setSearch] = useState('');
-   const [isScanning, setIsScanning] = useState(false);
+   const [scanRequested, setScanRequested] = useState(false);
    const [scanProgress, setScanProgress] = useState(0);
+   // A scan is running while requested and not yet complete; derived, so no state sync in an effect.
+   const isScanning = scanRequested && scanProgress < 100;
    const [isLoading, setIsLoading] = useState(true);
-   const [selectedNode, setSelectedNode] = useState<any>(null);
+   const [selectedNode, setSelectedNode] = useState<ExplorerRow | null>(null);
    const [activeTab, setActiveTab] = useState<'overview' | 'technical' | 'headers'>('overview');
    const [filter, setFilter] = useState<'all' | '200' | 'redirects'>('all');
    const [isExporting, setIsExporting] = useState(false);
@@ -77,20 +89,16 @@ export default function SiteExplorer() {
    }, []);
 
    useEffect(() => {
-      let interval: any;
-      if (isScanning && scanProgress < 100) {
-         interval = setInterval(() => {
-            setScanProgress(prev => Math.min(prev + 1.5, 100));
-         }, 100);
-      } else if (scanProgress === 100) {
-         setIsScanning(false);
-      }
+      if (!isScanning) return;
+      const interval = setInterval(() => {
+         setScanProgress(prev => Math.min(prev + 1.5, 100));
+      }, 100);
       return () => clearInterval(interval);
-   }, [isScanning, scanProgress]);
+   }, [isScanning]);
 
    const handleDeepScan = () => {
       setScanProgress(0);
-      setIsScanning(true);
+      setScanRequested(true);
    };
 
    // --- Filter Logic ---

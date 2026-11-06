@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import { useStoredDomain } from '@/lib/hooks/use-stored-domain';
+import type { ProjectData } from '@/lib/types';
 import { 
   Link as LinkIcon, 
   Globe, 
@@ -26,21 +28,20 @@ import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function BacklinkProfile() {
-   const [activeDomain, setActiveDomain] = useState('');
+   const stored = useStoredDomain();
+   const activeDomain = stored === undefined ? '' : (stored || 'cruxm.com');
    const [isLoading, setIsLoading] = useState(true);
-   const [projectData, setProjectData] = useState<any>(null);
+   const [projectData, setProjectData] = useState<ProjectData | null>(null);
 
    useEffect(() => {
-      const domain = localStorage.getItem('active_domain') || 'cruxm.com';
-      setActiveDomain(domain);
-
+      if (!activeDomain) return;
       const fetchBacklinks = async () => {
          setIsLoading(true);
          try {
-            const res = await fetch(`/api/project-data?domain=${domain}`);
-            const data = await res.json();
+            const res = await fetch(`/api/project-data?domain=${encodeURIComponent(activeDomain)}`);
+            const data: ProjectData = await res.json();
             setProjectData(data);
-         } catch (e) {
+         } catch {
             console.error('Fetch Error');
          } finally {
             setIsLoading(false);
@@ -48,7 +49,7 @@ export default function BacklinkProfile() {
       };
 
       fetchBacklinks();
-   }, []);
+   }, [activeDomain]);
 
    const proj = projectData?.project;
 
@@ -101,33 +102,29 @@ export default function BacklinkProfile() {
                   >
                      {/* Authority Dashboard Grid */}
                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 italic">
-                        <LinkMetricCard 
-                           label="Domain Rating" 
-                           value={proj?.dr || 42} 
+                        <LinkMetricCard
+                           label="Domain Rating"
+                           value={proj?.dr ?? NOT_MEASURED}
                            desc="Overall backlink profile strength (Logarithmic scale)"
                            color="text-blue-400"
-                           trend="+2.1"
                         />
-                        <LinkMetricCard 
-                           label="Referring Domains" 
-                           value={proj?.referringDomains?.toLocaleString() || '1.4K'} 
+                        <LinkMetricCard
+                           label="Referring Domains"
+                           value={proj?.referringDomains?.toLocaleString() ?? NOT_MEASURED}
                            desc="Unique originating domains linking to this site"
                            color="text-white"
-                           trend="+12"
                         />
-                        <LinkMetricCard 
-                           label="Total Backlinks" 
-                           value={proj?.backlinks?.toLocaleString() || '8.2K'} 
+                        <LinkMetricCard
+                           label="Total Backlinks"
+                           value={proj?.backlinks?.toLocaleString() ?? NOT_MEASURED}
                            desc="Total index count of all incoming referral nodes"
                            color="text-teal-400"
-                           trend="+142"
                         />
-                        <LinkMetricCard 
-                           label="URL Rating" 
-                           value={proj?.ur || 28} 
+                        <LinkMetricCard
+                           label="URL Rating"
+                           value={proj?.ur ?? NOT_MEASURED}
                            desc="Target URL link profile strength"
                            color="text-purple-400"
-                           trend="-0.5"
                         />
                      </div>
 
@@ -136,7 +133,7 @@ export default function BacklinkProfile() {
                         <div className="p-8 border-b border-white/5 flex justify-between items-center italic">
                            <div className="italic">
                               <h3 className="text-xl font-black uppercase tracking-tighter italic">Authority Referral Index</h3>
-                              <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] font-mono mt-1 italic italic italic">Showing {activeDomain?.includes('google') ? '12,402,128' : '1,402'} referring nodes</p>
+                              <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] font-mono mt-1 italic italic italic">Referring-node index not measured by this engine</p>
                            </div>
                            <div className="flex gap-4 italic italic">
                               <button className="p-3 bg-white/5 rounded-xl text-white/40 hover:text-white transition-all italic"><Filter size={16} /></button>
@@ -157,37 +154,11 @@ export default function BacklinkProfile() {
                                  </tr>
                               </thead>
                               <tbody className="divide-y divide-white/5 italic">
-                                 {generateBacklinkRows(activeDomain, proj?.dr).map((row, i) => (
-                                    <tr key={i} className="hover:bg-white/[0.03] transition-all group italic">
-                                       <td className="p-8 italic">
-                                          <div className="flex flex-col italic">
-                                             <span className="font-bold text-blue-400 text-sm group-hover:text-white transition-all cursor-pointer italic">{row.title}</span>
-                                             <span className="text-[10px] font-black text-white/20 flex items-center gap-1 mt-1 italic italic"><Globe size={10} /> {row.domain}</span>
-                                          </div>
-                                       </td>
-                                       <td className="p-8 italic">
-                                          <span className="bg-white/5 px-3 py-1 rounded-lg font-black text-[12px] italic">{row.dr}</span>
-                                       </td>
-                                       <td className="p-8 italic">
-                                          <span className="text-white/40 font-black text-[12px] italic">{row.ur}</span>
-                                       </td>
-                                       <td className="p-8 italic">
-                                          <div className="flex flex-col italic">
-                                             <span className="font-black text-[12px] italic">{row.links}</span>
-                                             <span className="text-[8px] font-black text-emerald-400 italic">+{Math.floor(Math.random() * 5)} NEW</span>
-                                          </div>
-                                       </td>
-                                       <td className="p-8 italic">
-                                          <div className="flex flex-col italic">
-                                             <span className="text-xs font-bold text-white/60 italic">"{row.anchor}"</span>
-                                             <span className="text-[9px] font-black text-teal-400 mt-1 flex items-center gap-1 italic italic italic italic"><ChevronRight size={8} /> target: /products/neural-v2</span>
-                                          </div>
-                                       </td>
-                                       <td className="p-8 italic">
-                                          <span className="text-[10px] font-black text-white/20 italic italic">{row.seen}</span>
-                                       </td>
-                                    </tr>
-                                 ))}
+                                 <tr className="italic">
+                                    <td colSpan={6} className="p-8 text-sm font-bold text-white/40 italic">
+                                       Referring pages are not measured by this engine, so no backlink rows are shown.
+                                    </td>
+                                 </tr>
                               </tbody>
                            </table>
                         </div>
@@ -225,7 +196,17 @@ export default function BacklinkProfile() {
    );
 }
 
-function LinkMetricCard({ label, value, desc, color, trend }: any) {
+const NOT_MEASURED = '—';
+
+interface LinkMetricCardProps {
+   label: string;
+   value: ReactNode;
+   desc: string;
+   color?: string;
+   trend?: string;
+}
+
+function LinkMetricCard({ label, value, desc, color, trend }: LinkMetricCardProps) {
    return (
       <div className="bg-white/5 border border-white/10 p-10 rounded-[40px] hover:border-blue-400/30 transition-all group italic shadow-xl">
          <div className="flex justify-between items-start mb-6 italic">
@@ -238,7 +219,13 @@ function LinkMetricCard({ label, value, desc, color, trend }: any) {
    );
 }
 
-function QualityMetric({ label, percentage, color }: any) {
+interface QualityMetricProps {
+   label: string;
+   percentage: number;
+   color?: string;
+}
+
+function QualityMetric({ label, percentage, color }: QualityMetricProps) {
    return (
       <div className="italic">
          <div className="flex justify-between items-end mb-2 italic">
@@ -256,16 +243,3 @@ function QualityMetric({ label, percentage, color }: any) {
    );
 }
 
-function generateBacklinkRows(domain: string, dr: number = 40) {
-   const isPower = domain.includes('google');
-   const baseDr = isPower ? 90 : (dr > 0 ? dr : 40);
-   
-   return [
-      { title: 'The Ultimate Guide to Search Infrastructure', domain: 'techcrunch.com', dr: 92, ur: 64, links: isPower ? '4.2M' : '1.1K', anchor: 'powerful search engine', seen: '2h ago' },
-      { title: 'Neural Networks in Modern Information Retrieval', domain: 'wired.com', dr: 91, ur: 58, links: isPower ? '2.8M' : '842', anchor: 'google algorithm', seen: '5h ago' },
-      { title: 'How to Build a Global Data Mesh', domain: 'forbes.com', dr: 93, ur: 71, links: isPower ? '8.1M' : '124', anchor: 'data platform', seen: '1d ago' },
-      { title: 'SEO Trends that actually matter in 2026', domain: 'ahrefs.com', dr: 92, ur: 42, links: isPower ? '240K' : '52', anchor: 'domain rating', seen: '2d ago' },
-      { title: 'Information Extraction vs Search Intent', domain: 'medium.com', dr: 95, ur: 33, links: '1.2M', anchor: 'read more', seen: '3d ago' },
-      { title: 'The Future of AI agents', domain: 'github.com', dr: 97, ur: 12, links: '4K', anchor: 'source code', seen: '4d ago' },
-   ];
-}

@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import { useStoredDomain } from '@/lib/hooks/use-stored-domain';
+import type { IssueRow, ProjectData } from '@/lib/types';
 import { 
   ShieldCheck, 
   Zap, 
@@ -24,21 +26,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function AuditHub() {
    const [filter, setFilter] = useState('ALL');
-   const [activeDomain, setActiveDomain] = useState('');
+   const stored = useStoredDomain();
+   const activeDomain = stored === undefined ? '' : (stored || 'cruxm.com');
    const [isLoading, setIsLoading] = useState(true);
-   const [auditData, setAuditData] = useState<any>(null);
+   const [auditData, setAuditData] = useState<ProjectData | null>(null);
 
    useEffect(() => {
-      const domain = localStorage.getItem('active_domain') || 'cruxm.com';
-      setActiveDomain(domain);
-
+      if (!activeDomain) return;
       const fetchAudit = async () => {
          setIsLoading(true);
          try {
-            const res = await fetch(`/api/project-data?domain=${domain}`);
-            const data = await res.json();
+            const res = await fetch(`/api/project-data?domain=${encodeURIComponent(activeDomain)}`);
+            const data: ProjectData = await res.json();
             setAuditData(data);
-         } catch (e) {
+         } catch {
             console.error('Audit Fetch Error');
          } finally {
             setIsLoading(false);
@@ -46,7 +47,7 @@ export default function AuditHub() {
       };
 
       fetchAudit();
-   }, []);
+   }, [activeDomain]);
 
    return (
       <div className="relative min-h-screen bg-[#050A0F] text-white p-6 md:p-10 selection:bg-teal-400 selection:text-black italic">
@@ -87,9 +88,9 @@ export default function AuditHub() {
                   >
                      {/* Health Grid */}
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 italic">
-                        <HealthCard label="Performance Score" value={auditData?.project?.score || 0} color="text-teal-400" icon={<Zap />} />
-                        <HealthCard label="SEO Accessibility" value={auditData?.project?.score > 80 ? 94 : 61} color="text-purple-400" icon={<Search />} />
-                        <HealthCard label="Compliance Grade" value={auditData?.issues?.length > 10 ? 68 : 92} color="text-orange-400" icon={<Monitor />} />
+                        <HealthCard label="Performance Score" value={auditData?.project?.score ?? '—'} suffix="/100" color="text-teal-400" icon={<Zap />} />
+                        <HealthCard label="Errors Found" value={auditData?.issues ? auditData.issues.filter((i) => i.type === 'error').length : '—'} color="text-purple-400" icon={<Search />} />
+                        <HealthCard label="Warnings Found" value={auditData?.issues ? auditData.issues.filter((i) => i.type === 'warning').length : '—'} color="text-orange-400" icon={<Monitor />} />
                      </div>
 
                      {/* Findings List */}
@@ -114,7 +115,7 @@ export default function AuditHub() {
                         </div>
 
                         <div className="space-y-4 italic italic">
-                           {auditData?.issues?.filter((i:any) => filter === 'ALL' || i.type.toUpperCase() === filter).map((issue: any) => (
+                           {auditData?.issues?.filter((i: IssueRow) => filter === 'ALL' || i.type.toUpperCase() === filter).map((issue: IssueRow) => (
                               <div key={issue.id} className="group flex flex-col md:flex-row items-center justify-between p-6 bg-white/[0.02] border border-white/5 rounded-3xl hover:bg-white/5 transition-all italic italic italic italic">
                                  <div className="flex items-center gap-8 italic italic italic italic italic">
                                     <div className={clsx(
@@ -157,7 +158,15 @@ export default function AuditHub() {
    );
 }
 
-function HealthCard({ label, value, color, icon }: any) {
+interface HealthCardProps {
+   label: string;
+   value: ReactNode;
+   color?: string;
+   icon?: ReactNode;
+   suffix?: string;
+}
+
+function HealthCard({ label, value, color, icon, suffix }: HealthCardProps) {
    return (
       <div className="bg-white/[0.02] border border-white/5 p-8 rounded-3xl relative overflow-hidden group hover:border-white/10 transition-all italic italic italic">
          <div className="absolute top-[-10px] left-[-10px] opacity-10 italic italic italic italic">
@@ -167,7 +176,7 @@ function HealthCard({ label, value, color, icon }: any) {
             <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-6 italic italic italic italic italic">{label}</p>
             <div className="flex items-end gap-3 italic italic italic italic italic italic">
                <span className={clsx("text-5xl font-black italic italic italic italic italic italic italic italic italic", color)}>{value}</span>
-               <span className={clsx("text-lg font-black opacity-40 mb-2 italic italic italic italic italic italic italic italic italic italic")}>/100</span>
+               {suffix && <span className={clsx("text-lg font-black opacity-40 mb-2 italic italic italic italic italic italic italic italic italic italic")}>{suffix}</span>}
             </div>
             <div className="mt-8 h-2 bg-white/5 rounded-full overflow-hidden italic italic italic italic italic italic italic">
                <motion.div 

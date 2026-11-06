@@ -1,6 +1,8 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, type ReactNode } from 'react';
+import { useStoredDomain } from '@/lib/hooks/use-stored-domain';
+import type { ProjectData } from '@/lib/types';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   TrendingUp,
@@ -36,43 +38,47 @@ export default function MarketingDashboardPage() {
 function MarketingDashboard() {
    const searchParams = useSearchParams();
    const router = useRouter();
-   const [activeDomain, setActiveDomain] = useState<string | null>(null);
+   const stored = useStoredDomain();
+   const queryDomain = searchParams.get('domain');
+   // Until hydration finishes `stored` is undefined: we do not know yet whether a domain is saved.
+   const storageReady = stored !== undefined;
+   const activeDomain = queryDomain || stored || null;
    const [isLoading, setIsLoading] = useState(true);
-   const [projectData, setProjectData] = useState<any>(null);
+   const [projectData, setProjectData] = useState<ProjectData | null>(null);
    const [error, setError] = useState<string | null>(null);
 
    useEffect(() => {
-      const domain = searchParams.get('domain') || localStorage.getItem('active_domain');
-      if (!domain) {
-         router.push('/');
+      if (!activeDomain) {
+         if (storageReady) router.push('/');
          return;
       }
-      setActiveDomain(domain);
-      
+
       const fetchProjectState = async () => {
          setIsLoading(true);
          setError(null);
          try {
-            const res = await fetch(`/api/project-data?domain=${domain}`);
-            const data = await res.json();
-            
+            const res = await fetch(`/api/project-data?domain=${encodeURIComponent(activeDomain)}`);
+            const data: ProjectData = await res.json();
+
             if (data.error) {
                const auditRes = await fetch('/api/run-audit', {
                   method: 'POST',
-                  body: JSON.stringify({ url: domain }),
+                  body: JSON.stringify({ url: activeDomain }),
                   headers: { 'Content-Type': 'application/json' }
                });
-               const auditData = await auditRes.json();
+               const auditData: { error?: string; domain?: string } = await auditRes.json();
                if (auditData.error) {
                   setError(auditData.error);
                } else {
-                  const retryRes = await fetch(`/api/project-data?domain=${domain}`);
+                  // The engine normalizes the domain (e.g. strips "www."), so reload by the stored name.
+                  const savedDomain = auditData.domain ?? activeDomain;
+                  const retryRes = await fetch(`/api/project-data?domain=${encodeURIComponent(savedDomain)}`);
                   setProjectData(await retryRes.json());
                }
             } else {
                setProjectData(data);
             }
-         } catch (e) {
+         } catch {
             setError('Failed to sync with CruxM Neural Engine.');
          } finally {
             setIsLoading(false);
@@ -80,7 +86,7 @@ function MarketingDashboard() {
       };
 
       fetchProjectState();
-   }, [searchParams, router]);
+   }, [activeDomain, storageReady, router]);
 
    if (error) {
       return (
@@ -147,12 +153,12 @@ function MarketingDashboard() {
                   >
                      {/* Ahrefs Top Ribbon Metrics */}
                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-0.5 bg-white/5 border border-white/10 rounded-3xl overflow-hidden italic shadow-2xl">
-                        <RibbonMetric label="Ahrefs Rank" value={(Math.random() * 10000).toFixed(0)} change="-421" />
-                        <RibbonMetric label="UR" value={proj?.ur || 15} color="text-teal-400" />
-                        <RibbonMetric label="DR" value={proj?.dr || 10} color="text-purple-400" />
-                        <RibbonMetric label="Backlinks" value={proj?.backlinks?.toLocaleString() || '1.1K'} color="text-blue-400" />
-                        <RibbonMetric label="Ref. Domains" value={proj?.referringDomains?.toLocaleString() || '402'} />
-                        <RibbonMetric label="Keywords" value={projectData?.keywords?.length || 0} change="+12" />
+                        <RibbonMetric label="Ahrefs Rank" value="—" />
+                        <RibbonMetric label="UR" value={proj?.ur ?? '—'} color="text-teal-400" />
+                        <RibbonMetric label="DR" value={proj?.dr ?? '—'} color="text-purple-400" />
+                        <RibbonMetric label="Backlinks" value={proj?.backlinks?.toLocaleString() ?? '—'} color="text-blue-400" />
+                        <RibbonMetric label="Ref. Domains" value={proj?.referringDomains?.toLocaleString() ?? '—'} />
+                        <RibbonMetric label="Keywords" value={projectData?.keywords?.length || 0} />
                      </div>
 
                      {/* Traffic Value Matrix (Ahrefs Overview Style) */}
@@ -168,33 +174,26 @@ function MarketingDashboard() {
                                <div className="flex gap-4 italic">
                                  <div className="flex flex-col items-end italic">
                                    <span className="text-[10px] font-black text-white/20 italic">MONTHLY TRAFFIC</span>
-                                   <span className="text-2xl font-black text-white italic">{proj?.organicTraffic || '12.4K'}</span>
+                                   <span className="text-2xl font-black text-white italic">{proj?.organicTraffic ?? '—'}</span>
                                  </div>
                                  <div className="flex flex-col items-end italic">
                                    <span className="text-[10px] font-black text-white/20 italic">TRAFFIC VALUE</span>
-                                   <span className="text-2xl font-black text-emerald-400 italic">{proj?.trafficValue || '$4.2K'}</span>
+                                   <span className="text-2xl font-black text-emerald-400 italic">{proj?.trafficValue ?? '—'}</span>
                                  </div>
                                </div>
                              </div>
                              
-                             <div className="h-64 flex items-end gap-1 italic">
-                               {[20, 35, 25, 45, 60, 55, 80, 75, 95, 85, 100, 110].map((v, i) => (
-                                 <div key={i} className="flex-1 bg-gradient-to-t from-teal-400/20 to-teal-400/40 rounded-t-lg group relative transition-all hover:scale-105 italic" style={{ height: `${v}%` }}>
-                                   <div className="absolute top-[-30px] left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all text-[10px] font-black italic">
-                                     {v}K
-                                   </div>
-                                 </div>
-                               ))}
-                             </div>
-                             <div className="flex justify-between mt-6 text-[10px] font-black text-white/10 italic">
-                               {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map(m => <span key={m}>{m}</span>)}
+                             <div className="h-64 flex items-center justify-center italic">
+                               <p className="text-sm font-bold text-white/30 text-center italic">
+                                 Monthly traffic history is not measured by this engine, so no chart is shown.
+                               </p>
                              </div>
                            </div>
 
                            <div className="bg-white/[0.02] border border-white/5 rounded-[40px] p-10 italic">
                              <h3 className="text-xl font-black uppercase tracking-tighter mb-8 italic">Search Intent Keywords</h3>
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 italic italic">
-                               {projectData?.keywords?.slice(0, 8).map((kw: any, i: number) => (
+                               {projectData?.keywords?.slice(0, 8).map((kw, i) => (
                                   <div key={i} className="flex items-center justify-between p-5 bg-white/[0.03] border border-white/5 rounded-2xl group hover:border-teal-400/30 transition-all italic italic">
                                      <div className="flex items-center gap-4 italic italic">
                                         <MousePointer2 size={16} className="text-white/20 italic italic" />
@@ -202,7 +201,7 @@ function MarketingDashboard() {
                                      </div>
                                      <div className="flex items-center gap-4 italic">
                                        <span className="text-[10px] font-black text-white/40 italic">VOL: {kw.volume?.toLocaleString() || '--'}</span>
-                                       <span className="text-[10px] font-black bg-white/5 text-teal-400 px-2 py-1 rounded italic italic">#{kw.position}</span>
+                                       <span className="text-[10px] font-black bg-white/5 text-teal-400 px-2 py-1 rounded italic italic">{kw.position != null ? `#${kw.position}` : '—'}</span>
                                      </div>
                                   </div>
                                ))}
@@ -217,7 +216,7 @@ function MarketingDashboard() {
                                  <div className="italic">
                                     <div className="flex justify-between mb-2 italic">
                                        <span className="text-[10px] font-black text-white/30 italic">REFERRING DOMAINS</span>
-                                       <span className="text-[10px] font-black text-white italic">{proj?.referringDomains || 0}</span>
+                                       <span className="text-[10px] font-black text-white italic">{proj?.referringDomains ?? '—'}</span>
                                     </div>
                                     <div className="h-2 bg-white/5 rounded-full overflow-hidden italic">
                                        <div className="h-full bg-purple-400 w-[70%] italic" />
@@ -226,7 +225,7 @@ function MarketingDashboard() {
                                  <div className="italic">
                                     <div className="flex justify-between mb-2 italic">
                                        <span className="text-[10px] font-black text-white/30 italic">DR RANKING</span>
-                                       <span className="text-[10px] font-black text-teal-400 italic">#{Math.floor(Math.random() * 5000) + 1}</span>
+                                       <span className="text-[10px] font-black text-teal-400 italic">—</span>
                                     </div>
                                     <div className="h-2 bg-white/5 rounded-full overflow-hidden italic">
                                        <div className="h-full bg-teal-400 w-[40%] italic" />
@@ -260,7 +259,14 @@ function MarketingDashboard() {
    );
 }
 
-function RibbonMetric({ label, value, color, change }: any) {
+interface RibbonMetricProps {
+   label: string;
+   value: ReactNode;
+   color?: string;
+   change?: string;
+}
+
+function RibbonMetric({ label, value, color, change }: RibbonMetricProps) {
    return (
       <div className="bg-black/60 p-8 flex flex-col justify-center items-center border-r border-white/5 last:border-r-0 hover:bg-black/40 transition-all italic">
          <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-4 italic text-center">{label}</p>

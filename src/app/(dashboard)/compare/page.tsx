@@ -1,6 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useStoredDomain } from '@/lib/hooks/use-stored-domain';
+
+interface ContentGap {
+   title: string;
+   keyword: string;
+   diff: string;
+   impact: string;
+}
+
+interface Comparison {
+   scoreA: number;
+   scoreB: number;
+   trafficA: string;
+   trafficB: string;
+   drA: number;
+   drB: number;
+   keywordsA: number;
+   keywordsB: number;
+   gaps: ContentGap[];
+}
 import { 
   Users, 
   Globe, 
@@ -20,14 +40,13 @@ import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DomainCompare() {
-   const [targetA, setTargetA] = useState('');
+   const stored = useStoredDomain();
+   // Typed input wins; until the user edits it, fall back to the saved active domain.
+   const [targetAInput, setTargetA] = useState<string | null>(null);
+   const targetA = targetAInput ?? (stored === undefined ? '' : (stored || 'cruxm.com'));
    const [targetB, setTargetB] = useState('');
    const [isLoading, setIsLoading] = useState(false);
-   const [comparison, setComparison] = useState<any>(null);
-
-   useEffect(() => {
-     setTargetA(localStorage.getItem('active_domain') || 'cruxm.com');
-   }, []);
+   const [comparison, setComparison] = useState<Comparison | null>(null);
 
    const runComparison = () => {
       setIsLoading(true);
@@ -136,10 +155,10 @@ export default function DomainCompare() {
                                  </tr>
                               </thead>
                               <tbody className="divide-y divide-white/5 italic">
-                                 {comparison.gaps.map((gap: any, i: number) => (
+                                 {comparison.gaps.map((gap, i) => (
                                     <tr key={i} className="hover:bg-white/[0.03] transition-colors group italic">
                                        <td className="p-6 font-bold text-white italic">{gap.title}</td>
-                                       <td className="p-6 text-white/40 italic">"{gap.keyword}"</td>
+                                       <td className="p-6 text-white/40 italic">&quot;{gap.keyword}&quot;</td>
                                        <td className="p-6 italic">
                                           <span className={clsx(
                                              "px-3 py-1 rounded text-[10px] font-black italic",
@@ -173,7 +192,16 @@ export default function DomainCompare() {
    );
 }
 
-function ComparisonCard({ label, valA, valB, colorA, colorB, unit = '' }: any) {
+interface ComparisonCardProps {
+   label: string;
+   valA: ReactNode;
+   valB: ReactNode;
+   colorA?: string;
+   colorB?: string;
+   unit?: string;
+}
+
+function ComparisonCard({ label, valA, valB, colorA, colorB, unit = '' }: ComparisonCardProps) {
    return (
       <div className="bg-white/[0.02] border border-white/5 p-8 rounded-3xl space-y-8 italic">
          <p className="text-[10px] font-black text-white/40 uppercase tracking-widest italic">{label}</p>

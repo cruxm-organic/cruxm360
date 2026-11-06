@@ -1,41 +1,42 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { projects, pages, issues, keywords, aiInsights } from '@/lib/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { isValidDomain } from '@/lib/security/domain';
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const domain = searchParams.get('domain');
+  const domain = new URL(req.url).searchParams.get('domain')?.toLowerCase() ?? null;
 
-  if (!domain) {
-    return NextResponse.json({ error: 'Domain param required' }, { status: 400 });
+  if (!isValidDomain(domain)) {
+    return NextResponse.json({ error: 'A valid domain is required.' }, { status: 400 });
   }
 
   try {
-    // 1. Get Project
     const project = await db.select().from(projects).where(eq(projects.domain, domain)).get();
 
     if (!project) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      return NextResponse.json({
+        error: 'No operational data found for this domain.',
+        hint: 'Please run an initial Discovery scan first.',
+      }, { status: 404 });
     }
 
-    // 2. Get Related Data
-    const projectPages = await db.select().from(pages).where(eq(pages.projectId, project.id)).all();
-    const projectIssues = await db.select().from(issues).where(eq(issues.projectId, project.id)).all();
-    const projectKeywords = await db.select().from(keywords).where(eq(keywords.projectId, project.id)).all();
-    const projectAi = await db.select().from(aiInsights).where(eq(aiInsights.projectId, project.id)).get();
+    const [allPages, allIssues, allKeywords, allAiInsights] = await Promise.all([
+      db.select().from(pages).where(eq(pages.projectId, project.id)).limit(200).all(),
+      db.select().from(issues).where(eq(issues.projectId, project.id)).limit(100).all(),
+      db.select().from(keywords).where(eq(keywords.projectId, project.id)).limit(100).all(),
+      db.select().from(aiInsights).where(eq(aiInsights.projectId, project.id)).get(),
+    ]);
 
     return NextResponse.json({
       project,
-      pages: projectPages,
-      issues: projectIssues,
-      keywords: projectKeywords,
-      ai: projectAi,
-      lastUpdate: project.crawledAt
+      pages: allPages,
+      issues: allIssues,
+      keywords: allKeywords,
+      ai: allAiInsights ?? { insight: 'Awaiting discovery results', actionable: 'Run scan to unlock.', priority: 'high', impact: 'None' },
     });
-
-  } catch (error: any) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: 'Server Audit Retrieval Failed' }, { status: 500 });
+  } catch (e: unknown) {
+    console.error('Data Fetch Failure:', e);
+    return NextResponse.json({ error: 'Project data could not be loaded. Please try again.' }, { status: 500 });
   }
 }

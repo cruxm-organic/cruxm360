@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import { useStoredDomain } from '@/lib/hooks/use-stored-domain';
+import type { KeywordRow, ProjectData } from '@/lib/types';
 import { 
   Target, 
   Search, 
@@ -30,23 +32,22 @@ import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function KeywordEngine() {
-   const [activeDomain, setActiveDomain] = useState('');
+   const stored = useStoredDomain();
+   const activeDomain = stored === undefined ? '' : (stored || 'cruxm.com');
    const [isLoading, setIsLoading] = useState(true);
-   const [projectData, setProjectData] = useState<any>(null);
-   const [selectedKeyword, setSelectedKeyword] = useState<any>(null);
+   const [projectData, setProjectData] = useState<ProjectData | null>(null);
+   const [selectedKeyword, setSelectedKeyword] = useState<KeywordRow | null>(null);
    const [keywordSearch, setKeywordSearch] = useState('');
 
    useEffect(() => {
-     const domain = localStorage.getItem('active_domain') || 'cruxm.com';
-     setActiveDomain(domain);
-
+     if (!activeDomain) return;
      const fetchKeywords = async () => {
         setIsLoading(true);
         try {
-           const res = await fetch(`/api/project-data?domain=${domain}`);
-           const data = await res.json();
+           const res = await fetch(`/api/project-data?domain=${encodeURIComponent(activeDomain)}`);
+           const data: ProjectData = await res.json();
            setProjectData(data);
-        } catch (e) {
+        } catch {
            console.error('Fetch Failed');
         } finally {
            setIsLoading(false);
@@ -54,9 +55,9 @@ export default function KeywordEngine() {
      };
 
      fetchKeywords();
-   }, []);
+   }, [activeDomain]);
 
-   const isPowerDomain = activeDomain.toLowerCase().includes('google');
+   const firstDifficulty = projectData?.keywords?.[0]?.difficulty ?? null;
 
    return (
       <div className="relative min-h-screen bg-[#050A0F] text-white p-6 md:p-10 selection:bg-teal-400 selection:text-black italic">
@@ -109,10 +110,10 @@ export default function KeywordEngine() {
                   >
                      {/* Keyword Summary Stats */}
                      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 italic">
-                        <KeywordMetricCard label="Organic Keywords" value={isPowerDomain ? '24.2M' : projectData?.keywords?.length || 0} trend="+12.1%" />
-                        <KeywordMetricCard label="Avg. KD Score" value={`${Math.floor(projectData?.keywords?.[0]?.difficulty || 42)}%`} color="text-purple-400" />
-                        <KeywordMetricCard label="CPC Opportunity" value={`$${((projectData?.project?.score || 50) / 10).toFixed(2)}`} color="text-emerald-400" />
-                        <KeywordMetricCard label="Traffic Potential" value={isPowerDomain ? '8.4B' : '12.1K'} color="text-teal-400" />
+                        <KeywordMetricCard label="Organic Keywords" value={projectData?.keywords?.length ?? '—'} />
+                        <KeywordMetricCard label="Avg. KD Score" value={firstDifficulty != null ? `${Math.floor(firstDifficulty)}%` : '—'} color="text-purple-400" />
+                        <KeywordMetricCard label="CPC Opportunity" value="—" color="text-emerald-400" />
+                        <KeywordMetricCard label="Traffic Potential" value="—" color="text-teal-400" />
                      </div>
 
                      {/* Professional Keywords Index Table */}
@@ -143,41 +144,39 @@ export default function KeywordEngine() {
                                  </tr>
                               </thead>
                               <tbody className="divide-y divide-white/5 italic">
-                                 {projectData?.keywords?.map((kw: any, i: number) => (
+                                 {projectData?.keywords?.map((kw, i) => (
                                     <tr key={i} className="hover:bg-white/[0.03] transition-all group italic">
                                        <td className="p-8 italic">
                                           <div className="flex flex-col italic">
                                              <span className="font-bold text-white text-sm group-hover:text-purple-400 transition-all cursor-pointer italic">{kw.keyword}</span>
-                                             <span className="text-[9px] font-black text-white/20 mt-1 italic italic italic">SERP Features: Sitelinks, Knowledge Card</span>
                                           </div>
                                        </td>
                                        <td className="p-8 italic">
                                           <div className="flex items-center gap-2 italic">
-                                             <span className="font-black text-emerald-400 text-[12px] italic">#{kw.position}</span>
-                                             <TrendingUp size={10} className="text-emerald-400" />
+                                             <span className="font-black text-emerald-400 text-[12px] italic">{kw.position != null ? `#${kw.position}` : '—'}</span>
+                                             {kw.position != null && <TrendingUp size={10} className="text-emerald-400" />}
                                           </div>
                                        </td>
                                        <td className="p-8 italic">
-                                          <span className="font-black text-[12px] italic">{kw.volume?.toLocaleString() || '1.1K'}</span>
+                                          <span className="font-black text-[12px] italic">{kw.volume != null ? kw.volume.toLocaleString() : '—'}</span>
                                        </td>
                                        <td className="p-8 italic">
                                           <div className="flex items-center gap-3 italic">
-                                             <span className={clsx("text-[10px] font-black italic", kw.difficulty > 70 ? "text-orange-400" : "text-emerald-400")}>{kw.difficulty}%</span>
+                                             <span className={clsx("text-[10px] font-black italic", (kw.difficulty ?? 0) > 70 ? "text-orange-400" : "text-emerald-400")}>{kw.difficulty != null ? `${kw.difficulty}%` : '—'}</span>
                                              <div className="w-12 h-1 bg-white/5 rounded-full overflow-hidden italic">
-                                                <div 
-                                                   className={clsx("h-full italic", kw.difficulty > 70 ? "bg-orange-400" : "bg-emerald-400")} 
-                                                   style={{ width: `${kw.difficulty}%` }} 
+                                                <div
+                                                   className={clsx("h-full italic", (kw.difficulty ?? 0) > 70 ? "bg-orange-400" : "bg-emerald-400")}
+                                                   style={{ width: `${kw.difficulty ?? 0}%` }}
                                                 />
                                              </div>
                                           </div>
                                        </td>
                                        <td className="p-8 italic">
-                                          <span className="text-white/40 font-black text-[12px] italic">${((kw.difficulty || 42) / 12).toFixed(2)}</span>
+                                          <span className="text-white/40 font-black text-[12px] italic">—</span>
                                        </td>
                                        <td className="p-8 italic">
                                           <div className="flex flex-col italic">
-                                             <span className="text-[12px] font-black text-teal-400 italic">{(40 - (kw.position * 2)).toFixed(1)}%</span>
-                                             <span className="text-[8px] font-black text-white/20 italic italic">Potential: {Math.floor(kw.volume * 0.4).toLocaleString()}</span>
+                                             <span className="text-[12px] font-black text-teal-400 italic">—</span>
                                           </div>
                                        </td>
                                        <td className="p-8 text-right italic">
@@ -245,7 +244,7 @@ export default function KeywordEngine() {
                         <div className="p-16 space-y-12 italic">
                            <div className="italic">
                               <p className="text-[10px] font-black text-purple-400 uppercase tracking-[0.4em] mb-4 italic">Neural SERP Analyzer</p>
-                              <h2 className="text-5xl font-black italic tracking-tighter uppercase italic">"{selectedKeyword.keyword}" <span className="text-white/20 italic italic italic">— {activeDomain}</span></h2>
+                              <h2 className="text-5xl font-black italic tracking-tighter uppercase italic">&quot;{selectedKeyword.keyword}&quot; <span className="text-white/20 italic italic italic">— {activeDomain}</span></h2>
                            </div>
 
                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 italic">
@@ -270,20 +269,11 @@ export default function KeywordEngine() {
                                     </tr>
                                  </thead>
                                  <tbody className="divide-y divide-white/5 italic">
-                                    {generateSerpRows(selectedKeyword.keyword).map((res, j) => (
-                                       <tr key={j} className="hover:bg-white/[0.03] transition-all italic">
-                                          <td className="p-8 italic">
-                                             <div className="flex flex-col italic">
-                                                <span className="font-bold text-sm text-white italic">{res.title}</span>
-                                                <span className="text-[10px] font-black text-white/20 mt-1 italic italic italic italic">{res.domain}</span>
-                                             </div>
-                                          </td>
-                                          <td className="p-8 italic"><span className="text-xs font-black italic">{res.dr}</span></td>
-                                          <td className="p-8 italic"><span className="text-xs font-black text-white/40 italic">{res.ur}</span></td>
-                                          <td className="p-8 italic"><span className="text-xs font-black text-teal-400 italic">{res.links}</span></td>
-                                          <td className="p-8 italic"><span className="text-xs font-black text-emerald-400 italic">{res.traffic}</span></td>
-                                       </tr>
-                                    ))}
+                                    <tr className="italic">
+                                       <td colSpan={5} className="p-8 text-sm font-bold text-white/40 italic">
+                                          SERP results are not measured by this engine, so none are shown for &quot;{selectedKeyword.keyword}&quot;.
+                                       </td>
+                                    </tr>
                                  </tbody>
                               </table>
                            </div>
@@ -298,7 +288,14 @@ export default function KeywordEngine() {
    );
 }
 
-function KeywordMetricCard({ label, value, color, trend }: any) {
+interface KeywordMetricCardProps {
+   label: string;
+   value: ReactNode;
+   color?: string;
+   trend?: string;
+}
+
+function KeywordMetricCard({ label, value, color, trend }: KeywordMetricCardProps) {
    return (
       <div className="bg-white/5 border border-white/10 p-10 rounded-[40px] hover:border-purple-400/30 transition-all group italic shadow-xl">
          <div className="flex justify-between items-start mb-6 italic">
@@ -310,7 +307,14 @@ function KeywordMetricCard({ label, value, color, trend }: any) {
    );
 }
 
-function MetricBox({ label, value, sub, color }: any) {
+interface MetricBoxProps {
+   label: string;
+   value: ReactNode;
+   sub?: ReactNode;
+   color?: string;
+}
+
+function MetricBox({ label, value, sub, color }: MetricBoxProps) {
    return (
       <div className="bg-white/[0.03] p-8 rounded-3xl text-center italic">
          <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1 italic italic italic italic">{label}</p>
@@ -320,12 +324,3 @@ function MetricBox({ label, value, sub, color }: any) {
    );
 }
 
-function generateSerpRows(keyword: string) {
-   return [
-      { title: `What is ${keyword}? - Official Guide`, domain: 'google.com', dr: 98, ur: 61, links: '24M', traffic: '402K' },
-      { title: `Complete Tutorial on ${keyword}`, domain: 'ahrefs.com', dr: 92, ur: 42, links: '12K', traffic: '82K' },
-      { title: `10 Best ways to use ${keyword}`, domain: 'semrush.com', dr: 91, ur: 40, links: '8.4K', traffic: '45K' },
-      { title: `Neural Analysis of ${keyword}`, domain: 'wired.com', dr: 91, ur: 33, links: '2.1K', traffic: '12K' },
-      { title: `Semantic trends in ${keyword}`, domain: 'medium.com', dr: 95, ur: 12, links: '452', traffic: '8.2K' },
-   ];
-}

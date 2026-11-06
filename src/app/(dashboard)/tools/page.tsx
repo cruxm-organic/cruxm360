@@ -134,8 +134,10 @@ const TOOLS = [
    }
 ];
 
+type Tool = (typeof TOOLS)[number];
+
 export default function ToolsArsenal() {
-   const [activeTool, setActiveTool] = useState<any>(null);
+   const [activeTool, setActiveTool] = useState<Tool | null>(null);
    const [running, setRunning] = useState(false);
    const [completedToolId, setCompletedToolId] = useState<string | null>(null);
    const [logs, setLogs] = useState<string[]>([]);
@@ -146,7 +148,7 @@ export default function ToolsArsenal() {
       ? TOOLS 
       : TOOLS.filter(t => t.category.toLowerCase() === filter.toLowerCase());
 
-   const runTool = async (tool: any) => {
+   const runTool = async (tool: Tool) => {
       setActiveTool(tool);
       setRunning(true);
       setCompletedToolId(null);
